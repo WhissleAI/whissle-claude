@@ -111,6 +111,7 @@ mcp = FastMCP(
 
 async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
     chunks: list[str] = []
+    steps: list[str] = []
     metadata: dict[str, Any] = {}
     rl_state: dict[str, Any] = {}
     async for line in resp.aiter_lines():
@@ -123,6 +124,14 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
         etype = event.get("event", "")
         if etype == "chunk":
             chunks.append(event.get("text", ""))
+        elif etype == "step":
+            label = event.get("label") or event.get("text") or event.get("message", "")
+            if label:
+                steps.append(label)
+        elif etype == "mode_detected":
+            mode = event.get("mode", "")
+            if mode:
+                steps.append(f"Mode: {mode}")
         elif etype == "done":
             if not chunks and event.get("summary"):
                 chunks.append(event["summary"])
@@ -132,7 +141,10 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             rl_state = event.get("state", {})
         elif etype == "error":
             raise RuntimeError(event.get("message", "Agent error"))
-    result = {"text": "".join(chunks), **metadata}
+    text = "".join(chunks)
+    if steps:
+        text = "**Steps:** " + " → ".join(steps) + "\n\n" + text
+    result = {"text": text, **metadata}
     if rl_state:
         result["_rl_state"] = rl_state
     return result

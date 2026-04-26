@@ -17,3 +17,6 @@ claude-voice/bun.lock
 
 # Runtime artifacts
 .claude-voice/
+
+# Claude Code project settings (user-specific, auto-generated)
+.claude/

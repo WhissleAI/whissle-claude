@@ -65,7 +65,7 @@ for arg in "$@"; do
       echo "  --mcp-only         Skip voice (claude-voice) setup"
       echo "  --voice-only       Skip MCP server setup"
       echo ""
-      echo "Sets up the Lulu MCP server (35+ tools) and claude-voice"
+      echo "Sets up the Lulu MCP server (42 tools) and claude-voice"
       echo "(Alt+V voice dictation) for your AI coding tools."
       exit 0 ;;
   esac
@@ -81,28 +81,64 @@ echo ""
 OS="$(uname -s)"
 case "$OS" in
   Darwin) PKG_MGR="brew" ;;
-  Linux)  PKG_MGR="apt" ;;
+  Linux)
+    if command -v apt-get &>/dev/null; then
+      PKG_MGR="apt"
+    elif command -v dnf &>/dev/null; then
+      PKG_MGR="dnf"
+    elif command -v yum &>/dev/null; then
+      PKG_MGR="yum"
+    elif command -v pacman &>/dev/null; then
+      PKG_MGR="pacman"
+    else
+      PKG_MGR="unknown"
+    fi
+    ;;
   *)      err "Unsupported OS: $OS"; exit 1 ;;
 esac
+
+# ── Helper: install a package via the detected package manager ───────────────
+pkg_install() {
+  local pkg="$1"
+  case "$PKG_MGR" in
+    brew)   brew install "$pkg" ;;
+    apt)    sudo apt-get install -y "$pkg" ;;
+    dnf)    sudo dnf install -y "$pkg" ;;
+    yum)    sudo yum install -y "$pkg" ;;
+    pacman) sudo pacman -S --noconfirm "$pkg" ;;
+    *)      err "Unknown package manager. Install '$pkg' manually."; return 1 ;;
+  esac
+}
+
+pkg_install_prompt() {
+  local pkg="$1" display="${2:-$1}"
+  echo -n "    Install $display via $PKG_MGR? [Y/n] "
+  read -r answer
+  if [[ "${answer:-Y}" =~ ^[Nn] ]]; then
+    warn "Skipping. Install manually: $PKG_MGR install $pkg"
+    return 1
+  fi
+  pkg_install "$pkg"
+}
 
 # ── Voice prerequisites ─────────────────────────────────────────────────────
 if ! $SKIP_VOICE; then
   echo -e "${BOLD}1. Prerequisites${NC}"
   echo ""
 
-  # Node.js 22+
+  # Node.js 20+
   if command -v node &>/dev/null; then
     NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
-    if [ "$NODE_VERSION" -ge 22 ]; then
+    if [ "$NODE_VERSION" -ge 20 ]; then
       ok "Node.js $(node -v)"
     else
-      err "Node.js $(node -v) found but v22+ is required (native WebSocket)"
+      err "Node.js $(node -v) found but v20+ is required"
       echo "    Install: https://nodejs.org or 'nvm install 22'"
       exit 1
     fi
   else
     err "Node.js not found"
-    echo "    Install v22+ from https://nodejs.org or:"
+    echo "    Install v20+ from https://nodejs.org or:"
     echo "    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
     echo "    nvm install 22"
     exit 1
@@ -113,25 +149,7 @@ if ! $SKIP_VOICE; then
     ok "sox ($(which rec 2>/dev/null || which sox))"
   else
     warn "sox not found — required for microphone capture"
-    if [ "$PKG_MGR" = "brew" ]; then
-      echo -n "    Install via Homebrew? [Y/n] "
-      read -r answer
-      if [[ "${answer:-Y}" =~ ^[Nn] ]]; then
-        warn "Skipping. Install manually: brew install sox"
-      else
-        brew install sox
-        ok "sox installed"
-      fi
-    elif [ "$PKG_MGR" = "apt" ]; then
-      echo -n "    Install via apt? [Y/n] "
-      read -r answer
-      if [[ "${answer:-Y}" =~ ^[Nn] ]]; then
-        warn "Skipping. Install manually: sudo apt install sox"
-      else
-        sudo apt install -y sox
-        ok "sox installed"
-      fi
-    fi
+    pkg_install_prompt "sox" || true
   fi
 
   # Claude Code CLI
@@ -157,10 +175,30 @@ if ! $SKIP_MCP; then
   echo -e "${BOLD}2. MCP Server${NC}"
   echo ""
 
+  # Ensure python3 is available
+  if ! command -v python3 &>/dev/null; then
+    err "python3 not found. Install Python 3.11+ and re-run."
+    exit 1
+  fi
+
   if [ ! -f "$PYTHON" ] || ! "$PYTHON" --version &>/dev/null; then
     info "Creating Python virtual environment..."
     rm -rf "$VENV_DIR"
-    python3 -m venv "$VENV_DIR"
+    # On Debian/Ubuntu, python3-venv may not be installed
+    if ! python3 -m venv "$VENV_DIR" 2>/dev/null; then
+      if [ "$PKG_MGR" = "apt" ]; then
+        warn "python3-venv not installed"
+        PYVER=$(python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+        pkg_install_prompt "python3.${PYVER##*.}-venv" "python3-venv" || {
+          # Fall back to generic package name
+          pkg_install "python3-venv" 2>/dev/null || true
+        }
+        python3 -m venv "$VENV_DIR"
+      else
+        err "Failed to create venv. Ensure python3-venv is installed."
+        exit 1
+      fi
+    fi
   fi
 
   info "Installing Python dependencies..."
@@ -171,7 +209,7 @@ if ! $SKIP_MCP; then
     exit 1
   }
   echo "$PIP_OUTPUT" | grep -v "^\[notice\]" | grep -v "^$" || true
-  ok "MCP server ready (35+ tools)"
+  ok "MCP server ready (42 tools)"
   echo ""
 fi
 
@@ -190,6 +228,34 @@ fi
 # ── Collect credentials ─────────────────────────────────────────────────────
 echo -e "${BOLD}4. Credentials${NC}"
 echo ""
+
+if [ -z "${WHISSLE_API_TOKEN:-}" ] && [ -z "${WHISSLE_USER_ID:-}" ]; then
+  # Check for saved credentials (POSIX-compatible parsing)
+  _get_env_val() { grep "^$1=" "$TOKEN_FILE" 2>/dev/null | sed "s/^$1=//" | head -1; }
+  if [ -f "$TOKEN_FILE" ]; then
+    SAVED_TOKEN=$(_get_env_val WHISSLE_API_TOKEN)
+    SAVED_UID=$(_get_env_val WHISSLE_USER_ID)
+    if [ -n "$SAVED_TOKEN" ]; then
+      info "Found saved token (${SAVED_TOKEN:0:8}...)"
+      echo -n "  Use saved token? [Y/n] "
+      read -r answer
+      if [[ "${answer:-Y}" =~ ^[Yy]$ ]] || [ -z "$answer" ]; then
+        WHISSLE_API_TOKEN="$SAVED_TOKEN"
+        WHISSLE_USER_NAME=$(_get_env_val WHISSLE_USER_NAME)
+        WHISSLE_LOCATION=$(_get_env_val WHISSLE_LOCATION)
+      fi
+    elif [ -n "$SAVED_UID" ]; then
+      info "Found saved user ID (${SAVED_UID:0:12}...)"
+      echo -n "  Use saved user ID? [Y/n] "
+      read -r answer
+      if [[ "${answer:-Y}" =~ ^[Yy]$ ]] || [ -z "$answer" ]; then
+        WHISSLE_USER_ID="$SAVED_UID"
+        WHISSLE_USER_NAME=$(_get_env_val WHISSLE_USER_NAME)
+        WHISSLE_LOCATION=$(_get_env_val WHISSLE_LOCATION)
+      fi
+    fi
+  fi
+fi
 
 if [ -z "${WHISSLE_API_TOKEN:-}" ] && [ -z "${WHISSLE_USER_ID:-}" ]; then
   info "Get a token at lulu.whissle.ai/access"
@@ -221,21 +287,22 @@ echo ""
 if [ -n "${WHISSLE_API_TOKEN:-}" ] && [[ "$WHISSLE_API_TOKEN" == wh_* ]]; then
   info "Validating token..."
   VALIDATE_URL="https://live-assist-backend-843574834406.europe-west1.run.app/api-tokens/validate?token=$WHISSLE_API_TOKEN"
-  HTTP_CODE=$(curl -s -o /tmp/whissle_validate.json -w "%{http_code}" "$VALIDATE_URL" 2>/dev/null || echo "000")
+  VALIDATE_TMP=$(mktemp)
+  HTTP_CODE=$(curl -s -o "$VALIDATE_TMP" -w "%{http_code}" "$VALIDATE_URL" 2>/dev/null || echo "000")
   if [ "$HTTP_CODE" = "200" ]; then
-    VALID=$(python3 -c "import json; d=json.load(open('/tmp/whissle_validate.json')); print(d.get('valid',''))" 2>/dev/null || echo "")
-    DEVICE_ID=$(python3 -c "import json; d=json.load(open('/tmp/whissle_validate.json')); print(d.get('deviceId',''))" 2>/dev/null || echo "")
+    VALID=$(python3 -c "import json; d=json.load(open('$VALIDATE_TMP')); print(d.get('valid',''))" 2>/dev/null || echo "")
+    DEVICE_ID=$(python3 -c "import json; d=json.load(open('$VALIDATE_TMP')); print(d.get('deviceId',''))" 2>/dev/null || echo "")
     if [ "$VALID" = "True" ]; then
       ok "Token validated (device: ${DEVICE_ID:0:12}...)"
     else
       err "Token is invalid. Get a new one at lulu.whissle.ai/access"
-      rm -f /tmp/whissle_validate.json
+      rm -f "$VALIDATE_TMP"
       exit 1
     fi
   else
     warn "Could not validate token (HTTP $HTTP_CODE). Continuing anyway..."
   fi
-  rm -f /tmp/whissle_validate.json
+  rm -f "$VALIDATE_TMP"
 fi
 
 # ── Persist credentials ─────────────────────────────────────────────────────
@@ -279,30 +346,11 @@ if ! $SKIP_MCP; then
   ensure_jq() {
     if ! command -v jq &>/dev/null; then
       err "jq is required for JSON config updates."
-      if [ "$PKG_MGR" = "brew" ]; then
-        echo -n "    Install via Homebrew? [Y/n] "
-        read -r answer
-        if [[ "${answer:-Y}" =~ ^[Nn] ]]; then
-          err "Cannot continue without jq. Install: brew install jq"
-          exit 1
-        else
-          brew install jq
-          ok "jq installed"
-        fi
-      elif [ "$PKG_MGR" = "apt" ]; then
-        echo -n "    Install via apt? [Y/n] "
-        read -r answer
-        if [[ "${answer:-Y}" =~ ^[Nn] ]]; then
-          err "Cannot continue without jq. Install: sudo apt install jq"
-          exit 1
-        else
-          sudo apt install -y jq
-          ok "jq installed"
-        fi
-      else
-        err "Install jq manually and re-run."
+      pkg_install_prompt "jq" || {
+        err "Cannot continue without jq."
         exit 1
-      fi
+      }
+      ok "jq installed"
     fi
   }
 
@@ -350,16 +398,37 @@ ENDJSON
   # ── Configure targets ──────────────────────────────────────────────────
   if $DO_CLAUDE_CODE; then
     info "Configuring Claude Code..."
+    # Claude Code reads MCP servers from ~/.claude.json
+    CLAUDE_JSON="$HOME/.claude.json"
+    # Hooks go in ~/.claude/settings.json
     CLAUDE_SETTINGS="$HOME/.claude/settings.json"
     mkdir -p "$HOME/.claude"
+    if [ ! -f "$CLAUDE_JSON" ]; then
+      echo '{}' > "$CLAUDE_JSON"
+    fi
     if [ ! -f "$CLAUDE_SETTINGS" ]; then
       echo '{}' > "$CLAUDE_SETTINGS"
     fi
     ensure_jq
+
+    # Write MCP server config to ~/.claude.json (primary)
+    tmp=$(mktemp)
+    jq --argjson srv "$MCP_SERVER_JSON" \
+      '.mcpServers.whissle = $srv' "$CLAUDE_JSON" > "$tmp" && mv "$tmp" "$CLAUDE_JSON"
+
+    # Also sync to ~/.claude/settings.json
     tmp=$(mktemp)
     jq --argjson srv "$MCP_SERVER_JSON" \
       '.mcpServers.whissle = $srv' "$CLAUDE_SETTINGS" > "$tmp" && mv "$tmp" "$CLAUDE_SETTINGS"
-    ok "Claude Code configured ($CLAUDE_SETTINGS)"
+
+    # Clean up stale project-level permissions that could cause tool bypass
+    LOCAL_SETTINGS="$SCRIPT_DIR/.claude/settings.local.json"
+    if [ -f "$LOCAL_SETTINGS" ]; then
+      rm -f "$LOCAL_SETTINGS"
+      info "Cleaned stale project permissions"
+    fi
+
+    ok "Claude Code MCP configured"
   fi
 
   if $DO_CURSOR; then
@@ -403,6 +472,7 @@ ENDJSON
       '.mcp.whissle = $srv' "$OPENCODE_CONFIG" > "$tmp" && mv "$tmp" "$OPENCODE_CONFIG"
     ok "OpenCode configured ($OPENCODE_CONFIG)"
   fi
+
   # ── Configure hooks (Claude Code only) ──────────────────────────────────
   if $DO_CLAUDE_CODE; then
     info "Configuring Claude Code hooks..."
@@ -471,13 +541,46 @@ if ! $SKIP_VOICE; then
   echo ""
 fi
 
+# ── Verify MCP server ───────────────────────────────────────────────────────
+if ! $SKIP_MCP; then
+  echo -e "${BOLD}7. Verification${NC}"
+  echo ""
+
+  info "Testing MCP server..."
+  INIT_MSG='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"setup-test","version":"0.1"}}}'
+  MCP_RESULT=$(echo "$INIT_MSG" | timeout 15 "$PYTHON" "$SERVER_PY" 2>/dev/null) || true
+
+  if echo "$MCP_RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='Lulu'" 2>/dev/null; then
+    TOOL_COUNT=$(printf '%s\n%s\n%s\n' \
+      "$INIT_MSG" \
+      '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+      '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}' \
+      | timeout 15 "$PYTHON" "$SERVER_PY" 2>/dev/null \
+      | python3 -c "
+import sys, json
+for line in sys.stdin:
+    try:
+        d = json.loads(line.strip())
+        if d.get('id') == 2:
+            print(len(d.get('result',{}).get('tools',[])))
+    except: pass
+" 2>/dev/null || echo "?")
+    ok "MCP server OK — ${TOOL_COUNT} tools registered"
+  else
+    warn "MCP server test failed. Check: $PYTHON $SERVER_PY"
+    warn "Try deleting venv/ and re-running setup."
+  fi
+
+  echo ""
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}${BOLD}Setup complete!${NC}"
 echo ""
 
 if ! $SKIP_MCP; then
-  echo "  MCP Server (35+ tools):"
+  echo "  MCP Server (42 tools):"
   echo "    Core, Memory, Calendar, Email, Contacts, Drive, Tasks,"
   echo "    Web Search, Finance, Media, Utilities, Navigation, Weather"
   echo ""
