@@ -19,6 +19,7 @@ Optional:
   PORT                 — port for SSE transport (Cloud Run sets this to 8080)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -47,6 +48,7 @@ USER_NAME = os.getenv("WHISSLE_USER_NAME", "")
 USER_LOCATION = os.getenv("WHISSLE_LOCATION", "")
 
 TIMEOUT = httpx.Timeout(90, connect=10)
+LONG_TIMEOUT = httpx.Timeout(300, connect=10)
 
 _transport = os.getenv("MCP_TRANSPORT", "stdio")
 _port = int(os.getenv("PORT", "8080"))
@@ -141,6 +143,8 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
             rl_state = event.get("state", {})
         elif etype == "error":
             raise RuntimeError(event.get("message", "Agent error"))
+    if not metadata:
+        logger.warning("SSE stream ended without a 'done' event")
     text = "".join(chunks)
     if steps:
         text = "**Steps:** " + " → ".join(steps) + "\n\n" + text
@@ -153,6 +157,7 @@ async def _consume_sse(resp: httpx.Response) -> dict[str, Any]:
 async def _agent_call(
     query: str,
     mode_hint: str = "",
+    timeout: httpx.Timeout | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Stream a query to the Lulu agent and return full result with metadata."""
@@ -170,7 +175,7 @@ async def _agent_call(
     body.update(extra)
 
     headers = {"Accept": "text/event-stream", **_auth_headers()}
-    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+    async with httpx.AsyncClient(timeout=timeout or TIMEOUT) as client:
         async with client.stream(
             "POST",
             f"{AGENT_URL}/route/stream",
@@ -184,10 +189,11 @@ async def _agent_call(
 async def _agent_stream(
     query: str,
     mode_hint: str = "",
+    timeout: httpx.Timeout | None = None,
     **extra: Any,
 ) -> str:
     """Stream a query and return just the text response."""
-    result = await _agent_call(query, mode_hint, **extra)
+    result = await _agent_call(query, mode_hint, timeout=timeout, **extra)
     return result.get("text", "(no response)")
 
 
@@ -281,7 +287,7 @@ async def deep_research(query: str) -> str:
     Args:
         query: Research topic (e.g. "Best practices for WebSocket reconnection in React 2025")
     """
-    return await _agent_stream(query, mode_hint="deep")
+    return await _agent_stream(query, mode_hint="deep", timeout=LONG_TIMEOUT)
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
@@ -354,7 +360,6 @@ async def get_user_personality() -> str:
                 logger.warning("get_user_personality: %s fetch failed: %s", label, e)
                 return None
 
-        import asyncio
         personality_data, archetype_data, voice_data = await asyncio.gather(
             _fetch("personality", f"{BACKEND_URL}/personality/{uid}"),
             _fetch("archetype", f"{BACKEND_URL}/archetype/{uid}"),
@@ -764,7 +769,7 @@ async def search_videos(query: str, max_results: int = 5) -> str:
     )
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def generate_image(prompt: str) -> str:
     """Generate an image from a text description.
 
@@ -803,6 +808,7 @@ async def analyze_audio(audio_url: str) -> str:
     return await _agent_stream(
         f"Analyze this audio file: {audio_url}",
         mode_hint="agentic",
+        timeout=LONG_TIMEOUT,
     )
 
 
@@ -816,6 +822,7 @@ async def analyze_video(video_url: str) -> str:
     return await _agent_stream(
         f"Analyze this video: {video_url}",
         mode_hint="agentic",
+        timeout=LONG_TIMEOUT,
     )
 
 
@@ -851,7 +858,7 @@ async def calculate(expression: str) -> str:
     )
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def run_code(code: str, language: str = "python") -> str:
     """Execute Python or JavaScript code in a sandbox on the Lulu gateway.
 

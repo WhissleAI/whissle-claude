@@ -93,8 +93,8 @@ def read_hook_input() -> dict:
 
 _INTENT_PATTERNS = [
     (r"\b(what|how|why|when|where|who|which|explain|tell me)\b", "QUERY"),
-    (r"\b(do|open|close|send|create|add|delete|run|start|stop|fix|change|update|remove|use|set|make|install|deploy|build|test|implement|migrate|refactor|push|merge|revert)\b", "COMMAND"),
     (r"\b(i (?:think|feel|prefer|like|love|hate|want)|my |i'm )\b", "INFORM"),
+    (r"\b(do|open|close|send|create|add|delete|run|start|stop|fix|change|update|remove|make|install|deploy|build|test|implement|migrate|refactor|push|merge|revert)\b", "COMMAND"),
     (r"\b(play|find|search|look up)\b", "QUERY"),
     (r"\b(please|could you|can you|would you)\b", "REQUEST"),
 ]
@@ -105,7 +105,7 @@ _EMOTION_KEYWORDS = {
     "happy": "HAPPY", "excited": "HAPPY", "love": "HAPPY",
     "great": "HAPPY", "awesome": "HAPPY", "amazing": "HAPPY",
     "perfect": "HAPPY",
-    "sad": "SAD", "down": "SAD", "depressed": "SAD",
+    "sad": "SAD", "depressed": "SAD",
     "tired": "SAD", "lonely": "SAD", "disappointed": "SAD",
     "scared": "FEARFUL", "afraid": "FEARFUL", "worried": "FEARFUL",
     "anxious": "FEARFUL", "nervous": "FEARFUL",
@@ -192,7 +192,8 @@ _MODE_PATTERNS = [
 
     # Google services
     (r"\b(google drive|my drive|my documents|search.*drive|find.*files)\b", "drive"),
-    (r"\b(google sheet|my sheet|save to sheet|read.*sheet|spreadsheet)\b", "sheets"),
+    (r"\b(save to sheet|write.*sheet|add.*sheet|log.*sheet)\b", "sheets_save"),
+    (r"\b(google sheet|my sheet|read.*sheet|spreadsheet|show.*sheet)\b", "sheets_read"),
 
     # Code execution (Lulu sandbox)
     (r"\b(run this code|execute.*code|run python|run javascript)\b", "code_exec"),
@@ -225,7 +226,8 @@ _MODE_TOOL_MAP = {
     "video": "search_videos",
     "image_gen": "generate_image",
     "drive": "search_drive",
-    "sheets": "save_to_sheet",
+    "sheets_save": "save_to_sheet",
+    "sheets_read": "read_from_sheet",
     "code_exec": "run_code",
     "web_search": "web_search",
 }
@@ -233,7 +235,7 @@ _MODE_TOOL_MAP = {
 
 def detect_mode(text: str) -> Tuple[str, str]:
     """Detect query mode and return (mode, mcp_tool_name) or ("", "")."""
-    lower = text.lower().strip()
+    lower = text[:10000].lower().strip()
     for pattern, mode in _MODE_PATTERNS:
         if re.search(pattern, lower):
             tool = _MODE_TOOL_MAP.get(mode, "")

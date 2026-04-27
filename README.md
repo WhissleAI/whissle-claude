@@ -40,7 +40,7 @@ You (typing or speaking)
 │  Receives enriched input with full             │
 │  user context — acts on it                     │
 │                                                │
-│  + 35 MCP tools (calendar, email,              │
+│  + 42 MCP tools (calendar, email,              │
 │    memory, research, drive, etc.)              │
 └───────────────────────┬────────────────────────┘
                         v
@@ -55,7 +55,7 @@ Three layers:
 |---|---|---|
 | **Text stream** | Intercepts every typed prompt, extracts emotion + intent, enriches input before the AI tool sees it | Hooks (`UserPromptSubmit`, `SessionStart`) — Claude Code only |
 | **Voice stream** | Alt+V push-to-talk — streams audio to Whissle ASR, returns transcription with emotion, intent, demographics, speech rate, speaker ID | `claude-voice` PTY wrapper |
-| **MCP tools** | 35+ tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) — all clients |
+| **MCP tools** | 42 tools — calendar, email, contacts, memory, research, web search, Drive, Tasks, finance, media, navigation, weather | MCP server (`server.py`) — all clients |
 
 ## Install
 
@@ -130,7 +130,7 @@ Claude-voice also maintains `.claude-voice/context.md` with conversation dynamic
 
 All input types feed the same personality pipeline.
 
-## MCP Tools (35+)
+## MCP Tools (42)
 
 | Category | Tools |
 |---|---|
@@ -166,7 +166,7 @@ All input types feed the same personality pipeline.
 ```
 lulu-code/
   setup.sh               # Unified installer — MCP + hooks + voice
-  server.py              # MCP server — 35+ tools
+  server.py              # MCP server — 42 tools
   pyproject.toml         # Python package config
   Dockerfile             # Cloud Run deployment (MCP only)
   hooks/
@@ -175,6 +175,7 @@ lulu-code/
     shared.py            # Shared config, regex patterns, async profile logging
   claude-voice/
     claude-voice          # Shell entrypoint — loads token, launches PTY wrapper
+    bin/claude-voice.mjs  # Node.js bin entrypoint for npm link
     package.json
     src/
       index.ts            # PTY wrapper, Alt+V intercept, system prompt injection
@@ -189,7 +190,7 @@ lulu-code/
 
 If you prefer not to use `./setup.sh`:
 
-**Claude Code** — `~/.claude/settings.json`:
+**Claude Code** — `~/.claude.json` (MCP config) + `~/.claude/settings.json` (hooks):
 ```json
 {
   "mcpServers": {
@@ -247,7 +248,7 @@ If you prefer not to use `./setup.sh`:
 **Voice server connection failed** — Check your token is valid and you have internet connectivity
 
 **MCP tools not appearing** — Restart your AI tool after `./setup.sh`. Check the relevant config file has the `whissle` MCP entry:
-- Claude Code: `~/.claude/settings.json`
+- Claude Code: `~/.claude.json` (MCP servers) and `~/.claude/settings.json` (hooks)
 - Cursor: `~/.cursor/mcp.json`
 - OpenCode: `~/.config/opencode/opencode.json`
 
@@ -256,10 +257,7 @@ If you prefer not to use `./setup.sh`:
 ## Uninstall
 
 **Claude Code:**
-```bash
-claude mcp remove whissle -s user
-# Remove hooks from ~/.claude/settings.json (delete the "hooks" key)
-```
+Remove the `whissle` entry from `mcpServers` in `~/.claude.json` and `~/.claude/settings.json`. Remove the `hooks` key from `~/.claude/settings.json`.
 
 **Cursor:** Remove the `whissle` entry from `~/.cursor/mcp.json`.
 

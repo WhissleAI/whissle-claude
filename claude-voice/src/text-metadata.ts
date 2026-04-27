@@ -17,9 +17,10 @@ export interface InputMetadata {
 // Intent patterns — same as Python's _INTENT_PATTERNS
 const INTENT_PATTERNS: Array<[RegExp, string]> = [
   [/\b(what|how|why|when|where|who|which|explain|tell me)\b/i, "QUERY"],
-  [/\b(do|open|close|send|create|add|delete|run|start|stop|fix|change|update|remove|use|set|make|install|deploy|build|test|implement|migrate|refactor|push|merge|revert)\b/i, "COMMAND"],
   [/\b(i (?:think|feel|prefer|like|love|hate|want)|my |i'm )\b/i, "INFORM"],
+  [/\b(do|open|close|send|create|add|delete|run|start|stop|fix|change|update|remove|make|install|deploy|build|test|implement|migrate|refactor|push|merge|revert)\b/i, "COMMAND"],
   [/\b(play|find|search|look up)\b/i, "QUERY"],
+  [/\b(please|could you|can you|would you)\b/i, "REQUEST"],
 ]
 
 // Emotion keywords — same as Python's _EMOTION_KEYWORDS
@@ -38,7 +39,6 @@ const EMOTION_KEYWORDS: Record<string, string> = {
   amazing: "HAPPY",
   perfect: "HAPPY",
   sad: "SAD",
-  down: "SAD",
   depressed: "SAD",
   tired: "SAD",
   lonely: "SAD",
@@ -60,6 +60,9 @@ const EMOTION_KEYWORDS: Record<string, string> = {
 
 function inferIntent(text: string): [string, Record<string, number>] {
   const lower = text.toLowerCase().trim()
+  if (lower.endsWith("?")) {
+    return ["QUERY", { QUERY: 0.8 }]
+  }
   for (const [pattern, intent] of INTENT_PATTERNS) {
     if (pattern.test(lower)) {
       return [intent, { [intent]: 0.7 }]

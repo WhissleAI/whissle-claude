@@ -318,13 +318,15 @@ process.stdin.on("data", (chunk: string) => {
 })
 
 // ── Cleanup ────────────────────────────────────────────────────────
+let cleanedUp = false
 function cleanup() {
+  if (cleanedUp) return
+  cleanedUp = true
   if (process.stdin.isTTY) {
     try { process.stdin.setRawMode(false) } catch {}
   }
   mic?.stop()
   asr?.close()
-  // Final flush of context
   contextStore.flush()
 }
 

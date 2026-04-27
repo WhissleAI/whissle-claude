@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "description": "Voice-enabled wrapper for Claude Code CLI — adds alt+v push-to-talk via Whissle ASR",
   "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "bin": {
-    "claude-voice": "./src/index.ts"
+    "claude-voice": "./bin/claude-voice.mjs"
   },
   "scripts": {
-    "start": "npx tsx src/index.ts",
-    "dev": "npx tsx --watch src/index.ts"
+    "start": "node --import tsx src/index.ts",
+    "dev": "node --import tsx --watch src/index.ts"
   },
   "dependencies": {
     "node-pty": "^0.10.1",
