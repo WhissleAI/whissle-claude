@@ -535,6 +535,7 @@ fi
 # ── Make claude-voice globally accessible ────────────────────────────────────
 if ! $SKIP_VOICE; then
   VOICE_BIN="$VOICE_DIR/claude-voice"
+  COMPLETIONS_DIR="$VOICE_DIR/completions"
   echo -e "${BOLD}6. Global Access${NC}"
   echo ""
   echo "  Make 'claude-voice' available from anywhere?"
@@ -543,15 +544,18 @@ if ! $SKIP_VOICE; then
   echo "    3) Skip (run from $VOICE_BIN)"
   echo -n "  Choice [1-3, default=3]: "
   read -r LINK_CHOICE
+  LINKED=false
   case "${LINK_CHOICE:-3}" in
     1)
       sudo ln -sf "$VOICE_BIN" /usr/local/bin/claude-voice
       ok "claude-voice linked to /usr/local/bin/claude-voice"
+      LINKED=true
       ;;
     2)
       mkdir -p "$HOME/.local/bin"
       ln -sf "$VOICE_BIN" "$HOME/.local/bin/claude-voice"
       ok "claude-voice linked to ~/.local/bin/claude-voice"
+      LINKED=true
       if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
         warn "~/.local/bin is not in your PATH. Add to your shell profile:"
         echo "    export PATH=\"\$HOME/.local/bin:\$PATH\""
@@ -561,6 +565,40 @@ if ! $SKIP_VOICE; then
       info "Skipping symlink. Run directly: $VOICE_BIN"
       ;;
   esac
+
+  # Install shell completions so claude-voice shows up in tab-complete
+  if $LINKED; then
+    SHELL_NAME="$(basename "${SHELL:-/bin/bash}")"
+    case "$SHELL_NAME" in
+      zsh)
+        # Install zsh completion function
+        ZSH_COMP_DIR="${HOME}/.zsh/completions"
+        mkdir -p "$ZSH_COMP_DIR"
+        cp "$COMPLETIONS_DIR/claude-voice.zsh" "$ZSH_COMP_DIR/_claude-voice"
+        # Ensure the completions dir is in fpath via .zshrc
+        if ! grep -q 'fpath.*\.zsh/completions' "${HOME}/.zshrc" 2>/dev/null; then
+          printf '\n# claude-voice completions\nfpath=(~/.zsh/completions $fpath)\nautoload -Uz compinit && compinit\n' >> "${HOME}/.zshrc"
+          ok "Added ~/.zsh/completions to fpath in ~/.zshrc"
+        else
+          ok "zsh completions installed"
+        fi
+        echo ""
+        info "Run ${BOLD}rehash${NC} or open a new terminal for tab-completion to work."
+        ;;
+      bash)
+        # Install bash completion
+        BASH_COMP_DIR="${HOME}/.local/share/bash-completion/completions"
+        mkdir -p "$BASH_COMP_DIR"
+        cp "$COMPLETIONS_DIR/claude-voice.bash" "$BASH_COMP_DIR/claude-voice"
+        ok "bash completions installed"
+        echo ""
+        info "Open a new terminal for tab-completion to work."
+        ;;
+      *)
+        info "Run ${BOLD}hash -r${NC} or open a new terminal for tab-completion to work."
+        ;;
+    esac
+  fi
   echo ""
 fi
 
