@@ -124,6 +124,8 @@ process.stdout.on("resize", () => {
 let recording = false
 let mic: MicCapture | null = null
 let asr: AsrStreamClient | null = null
+let bytesSent = 0
+let transcriptCount = 0
 const contextStore = new SessionContextStore(speakerLabels)
 
 function writeStatus(msg: string) {
@@ -142,13 +144,21 @@ async function startVoice() {
     language: asrLanguage,
   })
 
+  transcriptCount = 0
+  bytesSent = 0
+
   asr.onTranscript = (seg) => {
+    transcriptCount++
     // Ingest into multi-speaker context store
     const { speakerLabel } = contextStore.ingestVoice(seg)
 
     // Update terminal title with live speaker + metadata
     const meta = contextStore.shortSummary
     if (meta) writeStatus(`🎙 ${meta}`)
+
+    if (!seg.is_final) {
+      writeStatus(`🎙 …${seg.text.trim().slice(-40)}`)
+    }
 
     if (seg.is_final && seg.text.trim()) {
       // Build the text to inject
@@ -188,6 +198,7 @@ async function startVoice() {
 
   mic.onData = (pcm) => {
     asr?.sendPcm(pcm)
+    bytesSent += pcm.length
   }
 
   mic.onError = (err) => {
@@ -224,7 +235,8 @@ async function stopVoice() {
   asr = null
 
   const meta = contextStore.shortSummary
-  process.stderr.write(`\r\n🎙 Voice stopped${meta ? ` (${meta})` : ""}\r\n`)
+  const kb = Math.round(bytesSent / 1024)
+  process.stderr.write(`\r\n🎙 Voice stopped — ${kb}KB sent, ${transcriptCount} transcripts${meta ? ` (${meta})` : ""}\r\n`)
 }
 
 async function toggleVoice() {

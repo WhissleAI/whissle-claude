@@ -39,7 +39,7 @@ AGENT_URL = os.getenv(
 
 BACKEND_URL = os.getenv(
     "WHISSLE_BACKEND_URL",
-    "https://live-assist-backend-843574834406.europe-west1.run.app",
+    "https://live-assist-backend-843574834406.us-east4.run.app",
 ).rstrip("/")
 
 USER_ID = os.getenv("WHISSLE_USER_ID", "")
@@ -595,25 +595,29 @@ async def read_from_sheet(max_rows: int = 20) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
-async def create_task(title: str, notes: str = "", due: str = "") -> str:
-    """Add an item to your Google Tasks to-do list.
+async def create_task(title: str, notes: str = "", due: str = "", priority: str = "normal", list: str = "") -> str:
+    """Add an item to your to-do list.
 
     Args:
         title: Task title/description
         notes: Additional notes (optional)
         due: Due date in ISO 8601 or natural language (optional)
+        priority: Task priority — low, normal, high, urgent (default: normal)
+        list: Category or list name (optional)
     """
     q = f"Add a task: {title}"
     if due:
         q += f", due {due}"
     if notes:
         q += f". Notes: {notes}"
+    if priority != "normal":
+        q += f", priority: {priority}"
     return await _agent_stream(q, mode_hint="agentic")
 
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
 async def list_tasks(max_results: int = 20, show_completed: bool = False) -> str:
-    """Show your Google Tasks to-do list.
+    """Show your to-do list.
 
     Args:
         max_results: Max tasks to return (default 20)
@@ -627,13 +631,142 @@ async def list_tasks(max_results: int = 20, show_completed: bool = False) -> str
 
 @mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
 async def complete_task(task_id: str) -> str:
-    """Mark a task as completed in Google Tasks.
+    """Mark a task as completed.
 
     Args:
         task_id: ID of the task to complete
     """
     return await _agent_stream(
         f"Mark task {task_id} as completed",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def delete_task(task_id: str) -> str:
+    """Delete a task from the to-do list.
+
+    Args:
+        task_id: ID of the task to delete
+    """
+    return await _agent_stream(
+        f"Delete task {task_id}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def update_task(task_id: str, title: str = "", notes: str = "", due: str = "", priority: str = "") -> str:
+    """Update an existing task's title, notes, due date, or priority.
+
+    Args:
+        task_id: ID of the task to update
+        title: New title (optional)
+        notes: New notes (optional)
+        due: New due date (optional)
+        priority: New priority — low, normal, high, urgent (optional)
+    """
+    parts = [f"Update task {task_id}"]
+    if title:
+        parts.append(f"title: {title}")
+    if due:
+        parts.append(f"due: {due}")
+    if priority:
+        parts.append(f"priority: {priority}")
+    if notes:
+        parts.append(f"notes: {notes}")
+    return await _agent_stream(", ".join(parts), mode_hint="agentic")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Compound Agentic Actions
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def daily_plan() -> str:
+    """Generate a prioritized daily plan by synthesizing calendar, tasks, and emails."""
+    return await _agent_stream("Create my daily plan", mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def smart_follow_up(person: str, topic: str) -> str:
+    """Draft a follow-up email to a person about a topic.
+
+    Args:
+        person: Name of the person to follow up with
+        topic: Topic or subject to follow up on
+    """
+    return await _agent_stream(
+        f"Follow up with {person} about {topic}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def meeting_prep(meeting_query: str) -> str:
+    """Prepare for an upcoming meeting — agenda, attendees, relevant emails.
+
+    Args:
+        meeting_query: Name or description of the meeting to prepare for
+    """
+    return await _agent_stream(
+        f"Prepare for my meeting: {meeting_query}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def summarize_week() -> str:
+    """Generate a weekly summary of calendar events, completed tasks, and email activity."""
+    return await _agent_stream("Summarize my week", mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def quick_capture(input: str) -> str:
+    """Intelligently capture natural language and create tasks, events, or reminders.
+
+    Args:
+        input: Natural language input (e.g. "remind me to call John tomorrow at 3pm")
+    """
+    return await _agent_stream(input, mode_hint="agentic")
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools — Workflow Automation
+# ---------------------------------------------------------------------------
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def create_workflow(name: str, trigger_type: str, actions: str, trigger_config: str = "{}", conditions: str = "[]") -> str:
+    """Create an automated workflow that fires actions when conditions are met.
+
+    Args:
+        name: Short name for the workflow
+        trigger_type: What triggers it — on_schedule, on_email_received, on_calendar_event, on_keyword, on_task_due
+        actions: JSON array of actions, e.g. [{"type": "create_task", "args": {"title": "Review", "priority": "high"}}]
+        trigger_config: JSON trigger config, e.g. {"sender": "boss@co.com"} (optional)
+        conditions: JSON array of conditions, e.g. [{"type": "if_sender_is", "value": "boss"}] (optional)
+    """
+    return await _agent_stream(
+        f"Create a workflow named '{name}' triggered by {trigger_type} with actions {actions}",
+        mode_hint="agentic",
+    )
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def list_workflows() -> str:
+    """Show your active automated workflows."""
+    return await _agent_stream("List my workflows", mode_hint="agentic")
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=False))
+async def delete_workflow(workflow_id: str) -> str:
+    """Delete an automated workflow.
+
+    Args:
+        workflow_id: ID of the workflow to delete
+    """
+    return await _agent_stream(
+        f"Delete workflow {workflow_id}",
         mode_hint="agentic",
     )
 
